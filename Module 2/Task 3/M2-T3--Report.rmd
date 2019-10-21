@@ -1,0 +1,244 @@
+---
+title: "Predicting profitability of future products"
+author: "Aniss N"
+date: "17/10/2019"
+output: html_document
+---
+<style type="text/css">
+
+h1.title {
+  font-size: 38px;
+  font-weight: bold;
+  text-align: center;
+}
+h4.author {
+  font-size: 18px;
+  text-align: center;
+  color: black;
+}
+h4.date { 
+  font-size: 12px;
+  text-align: center;
+  color: black;
+}
+h4 {
+  color: #cc0000;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+```{r include=FALSE}
+library(caret)
+library(ggplot2)
+library(dplyr)
+library(reshape2)
+library(corrplot)
+library(fastDummies)
+```
+
+---
+```{r include=FALSE}
+Eproducts <- read.csv(
+  paste0("C:\\Users\\nisso\\Desktop\\Ubiqum\\Module 2 - Task 3\\",
+  "existingproductattributes2017.csv"))
+
+Eproducts_PP <- readRDS(file=
+          paste0("C:\\Users\\nisso\\Desktop\\Ubiqum\\Module 2 - Task 3\\Data\\",
+                 "Eproducts_PP.rds"))
+Eproducts_PP_PT <- readRDS(file=
+          paste0("C:\\Users\\nisso\\Desktop\\Ubiqum\\Module 2 - Task 3\\Data\\",
+                 "Eproducts_PP_PT.rds"))
+```
+
+#### **Preprocessing the data**
+
+First we need to check the outliers.<br>
+We can see that two features contain very visible outliers: `Volume` (2) and `x1StarReviews` (1). **These outliers will be removed.**
+<center>
+```{r echo=FALSE, fig.height=4, fig.width=3}
+boxplot(Eproducts$Volume, plot=TRUE,main="Volume",cex.main=0.8)
+boxplot(Eproducts$x1StarReviews, plot=TRUE,main="x1StarReviews",cex.main=0.8)
+```
+</center>
+
+We also noticed that some products had the same values so **we removed all duplicates**.<br>
+In order to apply regression on our data, **we select only numeric features**. But let's see how correlated are the remaining features (using a correlation matrix).
+
+<center>
+```{r echo=FALSE, fig.height=5, fig.width=9}
+melted_cormat <- readRDS(file=
+          paste0("C:\\Users\\nisso\\Desktop\\Ubiqum\\Module 2 - Task 3\\Data\\",
+                 "correlation_matrix.rds"))
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value))+
+  geom_tile()+
+  scale_fill_gradient2(low = "blue", high = "red4", mid = "white", midpoint = 0,
+                       limit = c(-1,1))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank())
+```
+</center>
+
+In order to avoid overfitting models, we will remove features with really high correlation or with a really low one. Finally, **we only select the following features: `Volume`,`x4StarReviews`,`x2StarReviews` and `PositiveServiceReview`.**
+
+---
+
+#### **Training models results**
+<center>
+**Prediction vs Reality**<br>
+```{r echo=FALSE, fig.height=4, fig.width=4}
+mods_PP <- readRDS(file=
+          paste0("C:\\Users\\nisso\\Desktop\\Ubiqum\\Module 2 - Task 3\\Data\\",
+                 "mods_PP.rds"))
+
+reg_r_vs_p <- function(xx, yy, ggtitle){
+  ggplot(mapping = aes(x = xx, y = yy)) +
+    geom_point() + 
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(title=ggtitle, x = "Reality", y = "Prediction")
+}
+
+reg_r_vs_p(Eproducts_PP$Volume,predict(mods_PP[["lr"]],newdata=Eproducts_PP),"Linear Regression")
+reg_r_vs_p(Eproducts_PP$Volume,predict(mods_PP[["knn"]],newdata=Eproducts_PP),"KNN")
+reg_r_vs_p(Eproducts_PP$Volume,predict(mods_PP[["rf"]],newdata=Eproducts_PP),"Random Forest")
+reg_r_vs_p(Eproducts_PP$Volume,predict(mods_PP[["svm"]],newdata=Eproducts_PP),"SVM (linear)")
+```
+</center>
+
+From these plots, we can already notice that **Random Forest model is the closest to Reality**.<br><br>
+<center>
+**Performance metrics**<br>
+```{r echo=FALSE, fig.height=4, fig.width=4}
+mods <- mods_PP
+model_names <- c("LR","KNN","RF","SVM (linear)")
+RMSE <- c(min(mods[["lr"]]$results$RMSE),
+          min(mods[["knn"]]$results$RMSE),
+          min(mods[["rf"]]$results$RMSE),
+          min(mods[["svm"]]$results$RMSE))
+Rsquared <- c(mods[["lr"]]$results$Rsquared[match(RMSE[1],mods[["lr"]]$results$RMSE)],
+              mods[["knn"]]$results$Rsquared[match(RMSE[2],mods[["knn"]]$results$RMSE)],
+              mods[["rf"]]$results$Rsquared[match(RMSE[3],mods[["rf"]]$results$RMSE)],
+              mods[["svm"]]$results$Rsquared[match(RMSE[4],mods[["svm"]]$results$RMSE)])
+Recap <- data.frame(model_names,RMSE,Rsquared)
+
+#Showing "RMSE" of all models
+ggplot(data=Recap,mapping=aes(x=model_names,y=RMSE,fill=model_names,
+                                  label=sprintf("%0.1f", round(RMSE,
+                                                               digits = 1)))) +
+  geom_bar(stat='identity')+
+  theme(legend.position="none",axis.title.x = element_blank())+
+  geom_text(size = 3,vjust=-0.5)+
+  scale_fill_manual("legend", values = c("LR"="orangered3",
+                                         "KNN" = "royalblue3",
+                                         "RF" = "lightpink2",
+                                         "SVM (linear)" = "darkgreen"))
+
+#Showing "Rsquared" of all models
+ggplot(data=Recap,mapping=aes(x=model_names,y=Rsquared,fill=model_names,
+                              label=sprintf("%0.3f", round(Rsquared,
+                                                           digits = 3)))) +
+  geom_bar(stat='identity')+
+  theme(legend.position="none",axis.title.x = element_blank())+
+  geom_text(size = 3,vjust=-0.5)+
+  scale_fill_manual("legend", values = c("LR"="orangered3",
+                                         "KNN" = "royalblue3",
+                                         "RF" = "lightpink2",
+                                         "SVM (linear)" = "darkgreen"))
+```
+</center>
+The performance metrics confirm that **Random Forest model is the best to predict volumes for future products**.
+
+---
+
+#### **Training models results** (including "Product Type")
+Let's test the models using the feature `Product Type`:
+<center>
+**Prediction vs Reality**<br>
+```{r echo=FALSE, warning=FALSE, fig.height=4, fig.width=4}
+mods_PP_PT <- readRDS(file=
+          paste0("C:\\Users\\nisso\\Desktop\\Ubiqum\\Module 2 - Task 3\\Data\\",
+                 "mods_PP_PT.rds"))
+
+reg_r_vs_p <- function(xx, yy, ggtitle){
+  ggplot(mapping = aes(x = xx, y = yy)) +
+    geom_point() + 
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(title=ggtitle, x = "Reality", y = "Prediction")
+}
+
+reg_r_vs_p(Eproducts_PP_PT$Volume,predict(mods_PP_PT[["lr"]],newdata=Eproducts_PP_PT),"Linear Regression")
+reg_r_vs_p(Eproducts_PP_PT$Volume,predict(mods_PP_PT[["knn"]],newdata=Eproducts_PP_PT),"KNN")
+reg_r_vs_p(Eproducts_PP_PT$Volume,predict(mods_PP_PT[["rf"]],newdata=Eproducts_PP_PT),"Random Forest")
+reg_r_vs_p(Eproducts_PP_PT$Volume,predict(mods_PP_PT[["svm"]],newdata=Eproducts_PP_PT),"SVM (linear)")
+```
+</center>
+
+<center>
+**Performance metrics**<br>
+```{r echo=FALSE, fig.height=4, fig.width=4}
+mods <- mods_PP_PT
+model_names <- c("LR","KNN","RF","SVM (linear)")
+RMSE <- c(min(mods[["lr"]]$results$RMSE),
+          min(mods[["knn"]]$results$RMSE),
+          min(mods[["rf"]]$results$RMSE),
+          min(mods[["svm"]]$results$RMSE))
+Rsquared <- c(mods[["lr"]]$results$Rsquared[match(RMSE[1],mods[["lr"]]$results$RMSE)],
+              mods[["knn"]]$results$Rsquared[match(RMSE[2],mods[["knn"]]$results$RMSE)],
+              mods[["rf"]]$results$Rsquared[match(RMSE[3],mods[["rf"]]$results$RMSE)],
+              mods[["svm"]]$results$Rsquared[match(RMSE[4],mods[["svm"]]$results$RMSE)])
+Recap <- data.frame(model_names,RMSE,Rsquared)
+
+#Showing "RMSE" of all models
+ggplot(data=Recap,mapping=aes(x=model_names,y=RMSE,fill=model_names,
+                                  label=sprintf("%0.1f", round(RMSE,
+                                                               digits = 1)))) +
+  geom_bar(stat='identity')+
+  theme(legend.position="none",axis.title.x = element_blank())+
+  geom_text(size = 3,vjust=-0.5)+
+  scale_fill_manual("legend", values = c("LR"="orangered3",
+                                         "KNN" = "royalblue3",
+                                         "RF" = "lightpink2",
+                                         "SVM (linear)" = "darkgreen"))
+
+#Showing "Rsquared" of all models
+ggplot(data=Recap,mapping=aes(x=model_names,y=Rsquared,fill=model_names,
+                              label=sprintf("%0.3f", round(Rsquared,
+                                                           digits = 3)))) +
+  geom_bar(stat='identity')+
+  theme(legend.position="none",axis.title.x = element_blank())+
+  geom_text(size = 3,vjust=-0.5)+
+  scale_fill_manual("legend", values = c("LR"="orangered3",
+                                         "KNN" = "royalblue3",
+                                         "RF" = "lightpink2",
+                                         "SVM (linear)" = "darkgreen"))
+```
+</center>
+We can see that **Product Type does not make the prediction more accurate**.
+
+---
+
+#### **Prediction of future products profitability**
+Below the predicted profitability for future products (using Random Forest with Product Type):
+```{r echo=FALSE}
+#Importing the data
+Nproducts <- read.csv(
+  paste0("C:\\Users\\nisso\\Desktop\\Ubiqum\\Module 2 - Task 3\\",
+         "newproductattributes2017.csv"))
+
+#Pre-processing
+Nproducts$BestSellersRank <- factor(Nproducts$BestSellersRank)
+Nproducts$ProductNum <- factor(Nproducts$ProductNum)
+
+#Predicting the volume of new products
+Nproducts_D <- dummy_cols(Nproducts, select_columns = "ProductType")
+NewVolumes <- predict(mods_PP_PT[["rf"]],newdata=Nproducts_D)
+Nproducts$NVolume <- round(NewVolumes,digit=0)
+Nproducts %>% 
+  filter(ProductType %in% c("PC","Laptop","Smartphone","Netbook")) %>% 
+  mutate(Profitability = Price*ProfitMargin*NVolume) %>% 
+  select(ProductType, ProductNum, Price, ProfitMargin, NVolume, Profitability) %>% 
+  arrange(desc(Profitability))
+```
